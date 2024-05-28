@@ -1,17 +1,20 @@
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from algorithm.KNN import KNN
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from scipy.stats import mode
 
 
 class KNNApp:
     def __init__(self, root):
         self.root = root
         self.root.title("KNN App")
+
+        self.model = None
 
         # Variables to hold dataset and model data
         self.dataset = None
@@ -72,9 +75,18 @@ class KNNApp:
             X = self.dataset.drop('Purchase Iphone', axis=1)
             Y = self.dataset['Purchase Iphone']
             self.X_train, self.X_test, self.Y_train, self.Y_test = train_test_split(X, Y, test_size=0.3, random_state=42)
-            y_hat_test = KNN(self.X_train, self.X_test, self.Y_train, self.Y_test, k_val=self.k)
+            self.model = KNN(self.X_train, self.X_test, self.Y_train, self.Y_test, self.k)
             messagebox.showinfo("Info", "Model trained successfully!")
-            self.knn_results(y_hat_test)
+
+            plt.clf()
+            self.visualize_knn_result()
+            plt.xlabel('Age')
+            plt.ylabel('Salary')
+            plt.title('KNN Result')
+            plt.legend()
+            plt.savefig('results/knn_result.png')
+            plt.show()
+
             self.accuracy_btn.config(state=tk.NORMAL)
             self.predict_btn.config(state=tk.NORMAL)
         else:
@@ -82,18 +94,31 @@ class KNNApp:
 
     def view_accuracy(self):
         if self.X_train is not None:
-            accuracy_vals = []
-            for i in range(1, 15):
-                y_hat_test = KNN(self.X_train, self.X_test, self.Y_train, self.Y_test, k_val=i)
-                accuracy_vals.append(accuracy_score(self.Y_test, y_hat_test))
-            k = accuracy_vals.index(max(accuracy_vals)) + 1
+            k_values = list(range(1, 15))
+            accuracies = []
+            for k in k_values:
+                X = self.dataset.drop('Purchase Iphone', axis=1)
+                Y = self.dataset['Purchase Iphone']
+                X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.3, random_state=42)
+                knn_model = KNN(X_train, X_test, Y_train, Y_test, k)
+                accuracy = knn_model.accuracy()
+                accuracies.append(accuracy)
+
+            max_acc = 0.0
+            k = 0
+
+            for i in range(len(accuracies)):
+                if accuracies[i] > max_acc and i % 2 == 0:
+                    max_acc = accuracies[i]
+                    k = i + 1
+
             if k != self.k:
-                messagebox.showinfo('Find better k', f'Find better k value = {k} (your k now = {self.k}). Start retraining model')
+                messagebox.showinfo('Find better k', f'Find better k value = {k} with accuracy {max_acc}. Start retraining model')
                 self.k = k
                 self.train_model()
             else:
                 messagebox.showinfo('All ok', f'Your k value = {self.k}')
-            plt.plot(range(1, 15), accuracy_vals, color='blue', marker='x', linestyle='dashed')
+            plt.plot(k_values, accuracies, color='blue', marker='x', linestyle='dashed')
             plt.savefig('results/accuracy.png')
             plt.show()
         else:
@@ -104,26 +129,50 @@ class KNNApp:
             age = int(self.age_entry.get())
             salary = int(self.salary_entry.get())
             new_data = pd.DataFrame({'Age': [age], 'Salary': [salary]})
-            prediction = KNN(self.X_train, new_data, self.Y_train, self.Y_train, k_val=5)
+            knn_indices = self.model.predict_point(new_data)
+
+            prediction = mode([self.Y_train.loc[idx] for idx in knn_indices])
+
             result = 'will purchase an iPhone' if prediction[0] == 1 else 'will not purchase an iPhone'
             messagebox.showinfo("Prediction Result", f'The person with age {age} and salary {salary} {result}.')
+
+            plt.clf()
+            self.visualize_knn_result()
+            # Визуализируем новую точку
+            plt.scatter(age, salary, color='red', label='New Point')
+
+            # Визуализируем ближайших соседей
+            colors = np.random.rand(len(knn_indices), 3)
+
+            for i, idx in enumerate(knn_indices):
+                # Получаем случайный цвет для данного соседа
+                color = colors[i]
+
+                # Определяем метку для данного соседа в зависимости от класса
+                label = 'Neighbor (Not Purchased)' if self.Y_train.loc[idx] == 0 else 'Neighbor (Purchased)'
+
+                # Отображаем точку с данными координатами и случайным цветом
+                plt.scatter(self.model.X_train.loc[idx]['Age'], self.model.X_train.loc[idx]['Salary'], color=color,
+                            label=label, marker='x')
+
+            plt.xlabel('Age')
+            plt.ylabel('Salary')
+            plt.title('Prediction')
+            plt.legend()
+            plt.show()
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to make prediction: {e}")
 
-    def knn_results(self, y_hat_test):
-        plt.clf()
-        for i in range(len(y_hat_test)):
-            if y_hat_test[i] == 0:
-                plt.scatter(self.X_test.iloc[i]['Age'], self.X_test.iloc[i]['Salary'], color='blue')
-            if y_hat_test[i] == 1:
-                plt.scatter(self.X_test.iloc[i]['Age'], self.X_test.iloc[i]['Salary'], color='orange')
-        sns.scatterplot(data=self.dataset, x=self.X_test['Age'], y=self.X_test['Salary'], hue=self.Y_test)
-        plt.xlabel('Age')
-        plt.ylabel('Salary')
-        plt.title('KNN Result')
-        plt.savefig('results/knn_result.png')
-        plt.show()
+    def visualize_knn_result(self):
+        try:
+            plt.scatter(self.X_train[self.Y_train == 0]['Age'], self.X_train[self.Y_train == 0]['Salary'], color='blue',
+                        label='Not Purchase')
+            plt.scatter(self.X_train[self.Y_train == 1]['Age'], self.X_train[self.Y_train == 1]['Salary'],
+                        color='orange', label='Purchase')
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to visualize KNN result: {e}")
 
 
 if __name__ == "__main__":
